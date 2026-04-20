@@ -1,7 +1,7 @@
 """
 Application Configuration
 =========================
-Colors, presets, and settings for the Medical AI Desktop App.
+Colors, presets, and settings for the Medical Image Viewer.
 """
 
 # ──────────────────────────────────────
@@ -262,17 +262,6 @@ QTabBar::tab:hover {
 """
 
 # ──────────────────────────────────────
-# Segmentation Mask Colors (R, G, B, Alpha)
-# ──────────────────────────────────────
-MASK_COLORS = {
-    "default":  (230, 69, 96, 100),    # Red-pink
-    "tumor":    (255, 99, 71, 120),    # Tomato red
-    "organ":    (0, 184, 148, 100),    # Green
-    "bone":     (255, 234, 167, 100),  # Yellow
-    "vessel":   (116, 185, 255, 100),  # Blue
-}
-
-# ──────────────────────────────────────
 # VTK Volume Rendering Presets
 # ──────────────────────────────────────
 VTK_PRESETS = {
@@ -293,6 +282,6 @@ VTK_PRESETS = {
 # ──────────────────────────────────────
 # Application Info
 # ──────────────────────────────────────
-APP_NAME = "Medical AI Viewer"
+APP_NAME = "Medical Image Viewer"
 APP_VERSION = "1.0.0"
-APP_DESCRIPTION = "Medical Image Analysis & AI Segmentation Desktop Application"
+APP_DESCRIPTION = "Desktop application for medical image viewing and 3D rendering"

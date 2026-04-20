@@ -1,72 +1,36 @@
 """
 Main Application Window
 ========================
-Professional dark-themed medical image analysis workstation.
-Integrates 2D viewer, 3D viewer, segmentation controls, and measurements.
+Professional dark-themed medical image viewer.
+Integrates 2D and 3D visualization for medical volumes.
 """
 
 import os
 import tempfile
 import zipfile
 import shutil
-import traceback
-import numpy as np
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QAction, QActionGroup, QToolBar, QStatusBar, QLabel,
-    QGroupBox, QComboBox, QPushButton, QSpinBox, QDoubleSpinBox,
-    QTextEdit, QFileDialog, QMessageBox, QProgressBar, QTabWidget,
-    QApplication, QFrame
+    QAction, QToolBar, QStatusBar, QLabel,
+    QGroupBox, QPushButton,
+    QFileDialog, QMessageBox, QTabWidget,
+    QApplication
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt5.QtGui import QIcon, QFont
+from PyQt5.QtCore import Qt, QTimer
 
 from gui.viewer_2d import Viewer2DWidget
 from gui.viewer_3d import Viewer3DWidget
-from medical.loader import ImageLoader, MedicalImage
+from medical.loader import ImageLoader
 from medical.preprocessing import generate_synthetic_volume
-from ai.inference import InferencePipeline, SegmentationResult
-from ai.model import SEGMENTERS
-from visualization.vtk_surface import export_stl
 from utils.config import APP_NAME, APP_VERSION
 
 
-class SegmentationWorker(QThread):
-    """Background worker for running segmentation."""
-
-    finished = pyqtSignal(object)  # SegmentationResult
-    error = pyqtSignal(str)
-    progress = pyqtSignal(str)
-
-    def __init__(self, volume, spacing, method, params):
-        super().__init__()
-        self.volume = volume
-        self.spacing = spacing
-        self.method = method
-        self.params = params
-
-    def run(self):
-        try:
-            self.progress.emit("Initializing segmentation pipeline...")
-            pipeline = InferencePipeline(self.method, **self.params)
-
-            self.progress.emit(f"Running {self.method} segmentation...")
-            result = pipeline.run(self.volume, self.spacing)
-
-            self.progress.emit("Segmentation complete!")
-            self.finished.emit(result)
-        except Exception as e:
-            self.error.emit(f"Segmentation error: {str(e)}\n{traceback.format_exc()}")
-
-
 class MainWindow(QMainWindow):
-    """Main application window for Medical AI Viewer."""
+    """Main application window for a display-only medical viewer."""
 
     def __init__(self):
         super().__init__()
         self.medical_image = None
-        self.segmentation_result = None
-        self.worker = None
 
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
         self.setMinimumSize(900, 600)
@@ -77,7 +41,7 @@ class MainWindow(QMainWindow):
         self._setup_central_widget()
         self._setup_status_bar()
 
-        self.statusBar().showMessage("Ready — Load a medical image or click 'Load Demo' to start")
+        self.statusBar().showMessage("Ready - load a medical image or open the demo volume")
 
     # ──────────────────────────────────
     # MENU BAR
@@ -110,17 +74,6 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        export_mask_action = QAction("💾 Export Mask (NIfTI)...", self)
-        export_mask_action.setShortcut("Ctrl+S")
-        export_mask_action.triggered.connect(self._export_mask)
-        file_menu.addAction(export_mask_action)
-
-        export_stl_action = QAction("📐 Export Mesh (STL)...", self)
-        export_stl_action.triggered.connect(self._export_stl)
-        file_menu.addAction(export_stl_action)
-
-        file_menu.addSeparator()
-
         quit_action = QAction("Exit", self)
         quit_action.setShortcut("Ctrl+Q")
         quit_action.triggered.connect(self.close)
@@ -133,19 +86,6 @@ class MainWindow(QMainWindow):
         vol3d_action.setShortcut("F5")
         vol3d_action.triggered.connect(self._show_3d_volume)
         view_menu.addAction(vol3d_action)
-
-        surf3d_action = QAction("🔺 3D Surface View", self)
-        surf3d_action.setShortcut("F6")
-        surf3d_action.triggered.connect(self._show_3d_surface)
-        view_menu.addAction(surf3d_action)
-
-        # AI menu
-        ai_menu = menubar.addMenu("&AI")
-
-        for seg_name in SEGMENTERS.keys():
-            action = QAction(f"Run: {seg_name.replace('_', ' ').title()}", self)
-            action.triggered.connect(lambda checked, n=seg_name: self._run_segmentation_method(n))
-            ai_menu.addAction(action)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -181,30 +121,10 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        self.btn_segment = QPushButton("🧠 Segment")
-        self.btn_segment.setObjectName("btnSegment")
-        self.btn_segment.clicked.connect(self._run_segmentation)
-        self.btn_segment.setEnabled(False)
-        toolbar.addWidget(self.btn_segment)
-
-        toolbar.addSeparator()
-
         self.btn_3d_vol = QPushButton("🔲 3D Volume")
         self.btn_3d_vol.clicked.connect(self._show_3d_volume)
         self.btn_3d_vol.setEnabled(False)
         toolbar.addWidget(self.btn_3d_vol)
-
-        self.btn_3d_surf = QPushButton("🔺 3D Surface")
-        self.btn_3d_surf.clicked.connect(self._show_3d_surface)
-        self.btn_3d_surf.setEnabled(False)
-        toolbar.addWidget(self.btn_3d_surf)
-
-        toolbar.addSeparator()
-
-        self.btn_export = QPushButton("💾 Export Mask")
-        self.btn_export.clicked.connect(self._export_mask)
-        self.btn_export.setEnabled(False)
-        toolbar.addWidget(self.btn_export)
 
     # ──────────────────────────────────
     # CENTRAL WIDGET
@@ -259,61 +179,18 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(info_group)
 
-        # ── Segmentation Controls ──
-        seg_group = QGroupBox("🧠 Segmentation")
-        seg_layout = QVBoxLayout(seg_group)
+        # ── Viewer Guide ──
+        guide_group = QGroupBox("👁 Viewer Guide")
+        guide_layout = QVBoxLayout(guide_group)
 
-        # Method selection
-        method_row = QHBoxLayout()
-        method_row.addWidget(QLabel("Method:"))
-        self.seg_method_combo = QComboBox()
-        for name in SEGMENTERS.keys():
-            self.seg_method_combo.addItem(name.replace("_", " ").title(), name)
-        self.seg_method_combo.setCurrentIndex(3)  # Morphological
-        method_row.addWidget(self.seg_method_combo)
-        seg_layout.addLayout(method_row)
+        self.lbl_guide = QLabel(
+            "Load DICOM, NIfTI, NRRD, or MHD data to explore slices in 2D and render the volume in 3D."
+        )
+        self.lbl_guide.setWordWrap(True)
+        self.lbl_guide.setStyleSheet("font-size: 11px; line-height: 1.4;")
+        guide_layout.addWidget(self.lbl_guide)
 
-        # Threshold controls
-        thresh_row = QHBoxLayout()
-        thresh_row.addWidget(QLabel("Lower:"))
-        self.spin_lower = QSpinBox()
-        self.spin_lower.setRange(-1024, 3000)
-        self.spin_lower.setValue(50)
-        thresh_row.addWidget(self.spin_lower)
-
-        thresh_row.addWidget(QLabel("Upper:"))
-        self.spin_upper = QSpinBox()
-        self.spin_upper.setRange(-1024, 3000)
-        self.spin_upper.setValue(200)
-        thresh_row.addWidget(self.spin_upper)
-        seg_layout.addLayout(thresh_row)
-
-        # Run button
-        self.btn_run_seg = QPushButton("▶ Run Segmentation")
-        self.btn_run_seg.setObjectName("btnSegment")
-        self.btn_run_seg.clicked.connect(self._run_segmentation)
-        self.btn_run_seg.setEnabled(False)
-        seg_layout.addWidget(self.btn_run_seg)
-
-        layout.addWidget(seg_group)
-
-        # ── Measurements ──
-        measure_group = QGroupBox("📐 Measurements")
-        measure_layout = QVBoxLayout(measure_group)
-
-        self.results_text = QTextEdit()
-        self.results_text.setReadOnly(True)
-        self.results_text.setMinimumHeight(180)
-        self.results_text.setPlaceholderText("Run segmentation to see measurements...")
-        measure_layout.addWidget(self.results_text)
-
-        layout.addWidget(measure_group)
-
-        # ── Progress ──
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)  # Indeterminate
-        self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
+        layout.addWidget(guide_group)
 
         layout.addStretch()
         return panel
@@ -476,172 +353,31 @@ class MainWindow(QMainWindow):
         self.viewer_3d.set_volume(img.volume, tuple(img.spacing))
 
         # Enable buttons
-        self.btn_segment.setEnabled(True)
-        self.btn_run_seg.setEnabled(True)
         self.btn_3d_vol.setEnabled(True)
-
-        # Clear previous results
-        self.segmentation_result = None
-        self.results_text.clear()
-        self.viewer_2d.clear_mask()
-        self.btn_3d_surf.setEnabled(False)
-        self.btn_export.setEnabled(False)
 
         self.statusBar().showMessage(
             f"Loaded: {name} | Shape: {img.shape} | Spacing: {img.spacing.tolist()}"
         )
-
-    def _run_segmentation(self):
-        """Run AI segmentation on the loaded volume."""
-        if self.medical_image is None:
-            return
-
-        method = self.seg_method_combo.currentData()
-        params = {
-            "lower": self.spin_lower.value(),
-            "upper": self.spin_upper.value(),
-        }
-
-        self._run_segmentation_method(method, **params)
-
-    def _run_segmentation_method(self, method: str, **kwargs):
-        """Run a specific segmentation method."""
-        if self.medical_image is None:
-            return
-
-        params = kwargs if kwargs else {
-            "lower": self.spin_lower.value(),
-            "upper": self.spin_upper.value(),
-        }
-
-        # Disable controls during segmentation
-        self.btn_segment.setEnabled(False)
-        self.btn_run_seg.setEnabled(False)
-        self.progress_bar.setVisible(True)
-
-        self.worker = SegmentationWorker(
-            self.medical_image.volume,
-            self.medical_image.spacing,
-            method, params
-        )
-        self.worker.finished.connect(self._on_segmentation_done)
-        self.worker.error.connect(self._on_segmentation_error)
-        self.worker.progress.connect(lambda msg: self.statusBar().showMessage(msg))
-        self.worker.start()
-
-    def _on_segmentation_done(self, result: SegmentationResult):
-        """Handle segmentation completion."""
-        self.segmentation_result = result
-
-        # Update 2D viewer with mask
-        self.viewer_2d.set_mask(result.mask)
-
-        # Update 3D viewer
-        self.viewer_3d.set_mask(result.mask)
-
-        # Show measurements
-        self.results_text.setText(result.summary())
-
-        # Enable buttons
-        self.btn_segment.setEnabled(True)
-        self.btn_run_seg.setEnabled(True)
-        self.btn_3d_surf.setEnabled(True)
-        self.btn_export.setEnabled(True)
-        self.progress_bar.setVisible(False)
-
-        self.statusBar().showMessage(
-            f"Segmentation complete — Volume: {result.volume_cm3:.2f} cm³ | "
-            f"Components: {result.num_components}"
-        )
-
-    def _on_segmentation_error(self, error_msg: str):
-        """Handle segmentation error."""
-        self.btn_segment.setEnabled(True)
-        self.btn_run_seg.setEnabled(True)
-        self.progress_bar.setVisible(False)
-
-        QMessageBox.critical(self, "Segmentation Error", error_msg)
-        self.statusBar().showMessage("Segmentation failed")
 
     def _show_3d_volume(self):
         """Switch to 3D tab and show volume rendering."""
         self.viewer_tabs.setCurrentIndex(1)
         self.viewer_3d._show_volume_rendering()
 
-    def _show_3d_surface(self):
-        """Switch to 3D tab and show surface view."""
-        if self.segmentation_result is None:
-            QMessageBox.information(self, "No Segmentation",
-                                    "Please run segmentation first.")
-            return
-        self.viewer_tabs.setCurrentIndex(1)
-        self.viewer_3d._show_surface_view()
-
-    def _export_mask(self):
-        """Export segmentation mask as NIfTI."""
-        if self.segmentation_result is None or self.medical_image is None:
-            QMessageBox.information(self, "No Segmentation",
-                                    "Please run segmentation first.")
-            return
-
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export Segmentation Mask", "segmentation_mask.nii.gz",
-            "NIfTI (*.nii.gz *.nii);;All Files (*.*)"
-        )
-        if not path:
-            return
-
-        try:
-            from medical.loader import ImageLoader
-            ImageLoader.save_mask_nifti(
-                self.segmentation_result.mask,
-                self.medical_image, path
-            )
-            self.statusBar().showMessage(f"Mask exported: {path}")
-            QMessageBox.information(self, "Export Success",
-                                    f"Segmentation mask saved to:\n{path}")
-        except Exception as e:
-            QMessageBox.critical(self, "Export Error", str(e))
-
-    def _export_stl(self):
-        """Export segmentation as STL mesh."""
-        if self.segmentation_result is None:
-            QMessageBox.information(self, "No Segmentation",
-                                    "Please run segmentation first.")
-            return
-
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export STL Mesh", "segmentation_mesh.stl",
-            "STL (*.stl);;All Files (*.*)"
-        )
-        if not path:
-            return
-
-        try:
-            export_stl(
-                self.segmentation_result.mask, path,
-                spacing=tuple(self.medical_image.spacing)
-            )
-            self.statusBar().showMessage(f"STL exported: {path}")
-            QMessageBox.information(self, "Export Success",
-                                    f"STL mesh saved to:\n{path}")
-        except Exception as e:
-            QMessageBox.critical(self, "Export Error", str(e))
-
     def _show_about(self):
         QMessageBox.about(
             self, f"About {APP_NAME}",
             f"<h2>{APP_NAME}</h2>"
             f"<p>Version {APP_VERSION}</p>"
-            f"<p>Medical Image Analysis & AI Segmentation Desktop Application</p>"
+            f"<p>Desktop application for loading and viewing medical image volumes.</p>"
             f"<hr>"
             f"<p><b>Features:</b></p>"
             f"<ul>"
             f"<li>DICOM / NIfTI / NRRD / MHD support</li>"
             f"<li>Three-plane 2D viewer (Axial/Sagittal/Coronal)</li>"
             f"<li>VTK 3D Volume Rendering</li>"
-            f"<li>AI Segmentation (Threshold, Otsu, Region Growing, Morphological)</li>"
-            f"<li>Surface extraction & STL export</li>"
+            f"<li>Window/level, brightness, contrast, and inversion controls</li>"
+            f"<li>Built-in synthetic demo volume</li>"
             f"</ul>"
             f"<p><b>Built with:</b> PyQt5, VTK, SimpleITK</p>"
         )

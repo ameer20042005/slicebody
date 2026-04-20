@@ -2,7 +2,7 @@
 3D Medical Image Viewer
 ========================
 VTK render window embedded in PyQt5 for interactive 3D visualization.
-Supports volume rendering and surface extraction.
+Supports volume rendering for medical volumes.
 """
 
 import numpy as np
@@ -16,9 +16,8 @@ import vtk
 from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 
 from visualization.vtk_volume import (
-    numpy_to_vtk_image, create_volume_rendering, create_mask_rendering
+    numpy_to_vtk_image, create_volume_rendering
 )
-from visualization.vtk_surface import extract_surface
 from utils.config import VTK_PRESETS
 
 
@@ -28,7 +27,6 @@ class Viewer3DWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.volume_data = None
-        self.mask_data = None
         self.spacing = (1.0, 1.0, 1.0)
         self.current_actors = []
 
@@ -48,19 +46,16 @@ class Viewer3DWidget(QWidget):
             self.preset_combo.addItem(name)
 
         self.btn_volume = QPushButton("🔲 Volume Render")
-        self.btn_surface = QPushButton("🔺 Surface View")
         self.btn_reset = QPushButton("🔄 Reset Camera")
         self.btn_clear = QPushButton("❌ Clear")
 
         self.btn_volume.clicked.connect(self._show_volume_rendering)
-        self.btn_surface.clicked.connect(self._show_surface_view)
         self.btn_reset.clicked.connect(self._reset_camera)
         self.btn_clear.clicked.connect(self._clear_scene)
 
         controls.addWidget(preset_label)
         controls.addWidget(self.preset_combo)
         controls.addWidget(self.btn_volume)
-        controls.addWidget(self.btn_surface)
         controls.addWidget(self.btn_reset)
         controls.addWidget(self.btn_clear)
         controls.addStretch()
@@ -119,10 +114,6 @@ class Viewer3DWidget(QWidget):
         self.volume_data = volume
         self.spacing = spacing
 
-    def set_mask(self, mask: np.ndarray):
-        """Set segmentation mask for rendering."""
-        self.mask_data = mask
-
     def _clear_scene(self):
         """Remove all actors from the scene."""
         for actor in self.current_actors:
@@ -132,7 +123,7 @@ class Viewer3DWidget(QWidget):
         self.vtk_widget.GetRenderWindow().Render()
 
     def _show_volume_rendering(self):
-        """Display volume rendering of the main image + mask overlay."""
+        """Display volume rendering of the loaded image."""
         if self.volume_data is None:
             return
 
@@ -144,32 +135,6 @@ class Viewer3DWidget(QWidget):
         vol_actor = create_volume_rendering(vtk_image, preset)
         self.renderer.AddVolume(vol_actor)
         self.current_actors.append(vol_actor)
-
-        # Mask overlay
-        if self.mask_data is not None:
-            mask_actor = create_mask_rendering(
-                self.mask_data, self.spacing,
-                color=(1.0, 0.27, 0.38), opacity=0.6
-            )
-            self.renderer.AddVolume(mask_actor)
-            self.current_actors.append(mask_actor)
-
-        self._reset_camera()
-
-    def _show_surface_view(self):
-        """Display surface extraction of the segmentation mask."""
-        if self.mask_data is None:
-            return
-
-        self._clear_scene()
-
-        # Surface from mask
-        surface_actor = extract_surface(
-            self.mask_data, self.spacing,
-            color=(0.9, 0.27, 0.35)
-        )
-        self.renderer.AddActor(surface_actor)
-        self.current_actors.append(surface_actor)
 
         self._reset_camera()
 

@@ -2,14 +2,14 @@
 2D Medical Image Viewer
 ========================
 Three-plane slice viewer (Axial/Sagittal/Coronal) with matplotlib
-embedded in PyQt5. Supports mask overlay, window/level, brightness,
-contrast, invert, and scrolling.
+embedded in PyQt5. Supports window/level, brightness, contrast,
+invert, and scrolling.
 """
 
 import numpy as np
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSlider, QLabel,
-    QComboBox, QFrame, QCheckBox, QGroupBox
+    QComboBox, QFrame, QCheckBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -39,8 +39,8 @@ class SliceCanvas(FigureCanvas):
         self._mask_handle = None
         self.fig.tight_layout(pad=1.5)
 
-    def display_slice(self, slice_data: np.ndarray, mask_data: np.ndarray = None):
-        """Display a 2D slice with optional mask overlay."""
+    def display_slice(self, slice_data: np.ndarray):
+        """Display a 2D slice."""
         if self._image_handle is None:
             self._image_handle = self.ax.imshow(
                 slice_data, cmap='gray', aspect='auto',
@@ -50,32 +50,7 @@ class SliceCanvas(FigureCanvas):
             self._image_handle.set_data(slice_data)
             self._image_handle.set_clim(vmin=slice_data.min(), vmax=slice_data.max())
 
-        # Mask overlay
-        if mask_data is not None:
-            mask_rgba = np.zeros((*mask_data.shape, 4), dtype=np.float32)
-            mask_rgba[mask_data > 0] = [1.0, 0.27, 0.38, 0.45]
-
-            if self._mask_handle is None:
-                self._mask_handle = self.ax.imshow(
-                    mask_rgba, aspect='auto', interpolation='nearest'
-                )
-            else:
-                self._mask_handle.set_data(mask_rgba)
-        elif self._mask_handle is not None:
-            self._mask_handle.set_data(
-                np.zeros((*slice_data.shape, 4), dtype=np.float32)
-            )
-
         self.draw_idle()
-
-    def clear_mask(self):
-        """Remove the mask overlay."""
-        if self._mask_handle is not None:
-            self._mask_handle.set_data(
-                np.zeros((2, 2, 4), dtype=np.float32)
-            )
-            self._mask_handle = None
-            self.draw_idle()
 
 
 class Viewer2DWidget(QWidget):
@@ -86,7 +61,6 @@ class Viewer2DWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.volume = None
-        self.mask = None
         self.brightness = 0.0
         self.contrast = 1.0
         self.invert = False
@@ -222,7 +196,6 @@ class Viewer2DWidget(QWidget):
     def set_volume(self, volume: np.ndarray):
         """Set the 3D volume to display."""
         self.volume = volume.astype(np.float32)
-        self.mask = None
 
         z, y, x = volume.shape
 
@@ -245,16 +218,6 @@ class Viewer2DWidget(QWidget):
 
         self.info_label.setText(f"Volume: {x}x{y}x{z}")
         self._update_slices()
-
-    def set_mask(self, mask: np.ndarray):
-        self.mask = mask
-        self._update_slices()
-
-    def clear_mask(self):
-        self.mask = None
-        self.axial_canvas.clear_mask()
-        self.sagittal_canvas.clear_mask()
-        self.coronal_canvas.clear_mask()
 
     def _get_windowed_volume(self) -> np.ndarray:
         """Apply window/level + brightness/contrast to the volume."""
@@ -295,10 +258,6 @@ class Viewer2DWidget(QWidget):
         sx = min(self.sagittal_slider[1].value(), x - 1)
         cy = min(self.coronal_slider[1].value(), y - 1)
 
-        ax_mask = self.mask[az, :, :] if self.mask is not None else None
-        sg_mask = self.mask[:, :, sx] if self.mask is not None else None
-        cr_mask = self.mask[:, cy, :] if self.mask is not None else None
-
-        self.axial_canvas.display_slice(windowed[az, :, :], ax_mask)
-        self.sagittal_canvas.display_slice(windowed[:, :, sx], sg_mask)
-        self.coronal_canvas.display_slice(windowed[:, cy, :], cr_mask)
+        self.axial_canvas.display_slice(windowed[az, :, :])
+        self.sagittal_canvas.display_slice(windowed[:, :, sx])
+        self.coronal_canvas.display_slice(windowed[:, cy, :])

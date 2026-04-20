@@ -1,7 +1,7 @@
 """
-Medical AI Viewer — Entry Point
-================================
-Professional Medical Image Analysis & AI Segmentation Desktop Application.
+Medical Image Viewer — Entry Point
+==================================
+Desktop application for loading and displaying medical image volumes.
 
 Usage:
     python main.py
